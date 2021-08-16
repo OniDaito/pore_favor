@@ -222,15 +222,16 @@ pub fn save_fits(img : &Vec<Vec<f32>>, filename : &String) {
 /// * `img` - A Vec of Vectors of Point - a model
 /// * `max_points` - A usize representing the maximum number of points
 ///
+/*
 pub fn drop_points(img : &Vec<Point>, max_points : usize) -> Vec<Point> {
     let mut fmodel : Vec<Point> = vec!();
     let mut rng = rand::thread_rng();
     let mut choices : Vec<usize> = vec!(); 
 
     for i in 0..max_points {
-        let mut ridx = rng.gen_range(img.len()-1);
+        let mut ridx = rng.gen_range(0, img.len()-1);
         while choices.contains(&ridx) {
-            ridx = rng.gen_range(img.len()-1);
+            ridx = rng.gen_range(0, img.len()-1);
         }
 
         choices.push(ridx);
@@ -238,7 +239,7 @@ pub fn drop_points(img : &Vec<Point>, max_points : usize) -> Vec<Point> {
     }
 
     fmodel
-}
+}*/
 
 /// Returns a Vec of Point - a model
 /// Drop points so we are equal to or under a max.
@@ -281,10 +282,10 @@ fn render (models : &Vec<Vec<Point>>, out_path : &String,  nthreads : u32,
                 for _i in 0..cslice.len() {
                     // Slightly inefficient if we are dropping points
                     let mut scaled = scale_shift_model(&cslice[_i], scale);
-                    if max_points != 0 {
-                        let fslice = drop_points(&cslice[_i], max_points);
-                        scaled = scale_shift_model(&fslice, scale);
-                    }
+                    //if max_points != 0 {
+                    //    let fslice = drop_points(&cslice[_i], max_points);
+                    //    scaled = scale_shift_model(&fslice, scale);
+                    //}
                     
                     for _j in 0..pertubations {
                         let mut timg : Vec<Vec<f32>> = vec![];
