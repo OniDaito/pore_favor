@@ -374,7 +374,7 @@ fn parse_csv(path : &String) -> Result<Vec<Vec<Point>>, Box<Error>> {
 fn main() {
      let args: Vec<_> = env::args().collect();
     
-    if args.len() < 6 {
+    if args.len() < 5 {
         println!("Usage: render <path to csv file> <path to output> <threads> <sigma>"); 
         process::exit(1);
     }
