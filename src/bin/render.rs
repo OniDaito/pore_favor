@@ -253,8 +253,7 @@ pub fn drop_points(img : &Vec<Point>, max_points : usize) -> Vec<Point> {
 /// * `scale` - An f32 - what scale to use
 /// * `max_points` - A usize - maximum number of points to 
 ///
-fn render (models : &Vec<Vec<Point>>, out_path : &String,  nthreads : u32, 
-    pertubations : u32, sigma : f32, scale : f32, max_points : usize) {
+fn render (models : &Vec<Vec<Point>>, out_path : &String,  nthreads : u32, sigma : f32, scale : f32, max_points : usize) {
     // Split into threads here I think
     let pi = std::f32::consts::PI;
     let (tx, rx) = channel();
@@ -287,47 +286,46 @@ fn render (models : &Vec<Vec<Point>>, out_path : &String,  nthreads : u32,
                     //    scaled = scale_shift_model(&fslice, scale);
                     //}
                     
-                    for _j in 0..pertubations {
-                        let mut timg : Vec<Vec<f32>> = vec![];
+             
+                    let mut timg : Vec<Vec<f32>> = vec![];
 
-                        // Could be faster I bet
-                        for _x in 0..WIDTH {
-                            let mut tt : Vec<f32> = vec![];
-                            for _y in 0..HEIGHT { tt.push(0.0); }
-                            timg.push(tt);
-                        }
-                        // A random rotation around the plane
-                        let rr = rng.sample(side);
-                        let rm = (rr.cos(), -rr.sin(), rr.sin(), rr.cos());
+                    // Could be faster I bet
+                    for _x in 0..WIDTH {
+                        let mut tt : Vec<f32> = vec![];
+                        for _y in 0..HEIGHT { tt.push(0.0); }
+                        timg.push(tt);
+                    }
+                    // A random rotation around the plane
+                    let rr = rng.sample(side);
+                    let rm = (rr.cos(), -rr.sin(), rr.sin(), rr.cos());
 
-                        for ex in 0..WIDTH {
-                            for ey in 0..HEIGHT {
-                                for point in &scaled {
-                                    let xs = point.x * rm.0 + point.y * rm.1;
-                                    let ys = point.x * rm.2 + point.y * rm.3;
-                                    let xf = xs + (WIDTH as f32/ 2.0);
-                                    let yf = ys + (HEIGHT as f32 / 2.0);
-                                    if xf >= 0.0 && xf < WIDTH as f32 && yf >= 0.0 && yf < HEIGHT as f32 {   
-                                        let pval = (1.0 / (2.0 * pi * sigma.powf(2.0))) *
-                                            (-((ex as f32 - xf).powf(2.0) + (ey as f32 - yf).powf(2.0)) / (2.0*sigma.powf(2.0))).exp();        
-                                        timg[ex as usize][ey as usize] += pval;
-                                    }
-                                    // We may get ones that exceed but it's very likely they are outliers
-                                    /*else {
-                                        // TODO - ideally we send an error that propagates
-                                        // and kills all other threads and quits cleanly
-                                        println!("Point still exceeding range in image");
-                                    }*/
+                    for ex in 0..WIDTH {
+                        for ey in 0..HEIGHT {
+                            for point in &scaled {
+                                let xs = point.x * rm.0 + point.y * rm.1;
+                                let ys = point.x * rm.2 + point.y * rm.3;
+                                let xf = xs + (WIDTH as f32/ 2.0);
+                                let yf = ys + (HEIGHT as f32 / 2.0);
+                                if xf >= 0.0 && xf < WIDTH as f32 && yf >= 0.0 && yf < HEIGHT as f32 {   
+                                    let pval = (1.0 / (2.0 * pi * sigma.powf(2.0))) *
+                                        (-((ex as f32 - xf).powf(2.0) + (ey as f32 - yf).powf(2.0)) / (2.0*sigma.powf(2.0))).exp();        
+                                    timg[ex as usize][ey as usize] += pval;
                                 }
+                                // We may get ones that exceed but it's very likely they are outliers
+                                /*else {
+                                    // TODO - ideally we send an error that propagates
+                                    // and kills all other threads and quits cleanly
+                                    println!("Point still exceeding range in image");
+                                }*/
                             }
                         }
-                        
-                        let fidx = format!("/image_{:06}.fits",
-                            ((start + _i) * (pertubations as usize))  + _j as usize);
-                        let mut fitspath = out_path.clone();
-                        fitspath.push_str(&fidx);
-                        save_fits(&timg, &fitspath);
                     }
+                    
+                    let fidx = format!("/image_{:06}.fits",
+                        ((start + _i) as usize));
+                    let mut fitspath = out_path.clone();
+                    fitspath.push_str(&fidx);
+                    save_fits(&timg, &fitspath);
                     tx.send(_i).unwrap();
                 }
             });
@@ -351,7 +349,7 @@ fn render (models : &Vec<Vec<Point>>, out_path : &String,  nthreads : u32,
 /// 
 /// * `path` - A String - the path to the CSV file
 ///
-fn parse_matlab(path : &String) -> Result<Vec<Vec<Point>>, Box<Error>> {
+fn parse_csv(path : &String) -> Result<Vec<Vec<Point>>, Box<Error>> {
     let mut models : Vec<Vec<Point>>  = vec!();
     let file = File::open(path)?;
     let mut rdr = csv::Reader::from_reader(file);
@@ -377,36 +375,17 @@ fn main() {
      let args: Vec<_> = env::args().collect();
     
     if args.len() < 6 {
-        println!("Usage: render <path to csv file> <path to output> <threads>
-            <sigma> <pertubations> <accepted - OPTIONAL> <points limit - OPTIONAL>"); 
+        println!("Usage: render <path to csv file> <path to output> <threads> <sigma>"); 
         process::exit(1);
     }
     
     let nthreads = args[3].parse::<u32>().unwrap();
-    let npertubations = args[5].parse::<u32>().unwrap();
     let sigma = args[4].parse::<f32>().unwrap();
     let mut accepted : Vec<usize> = vec!();
     let mut max_points : usize = 0;
 
-    if args.len() >= 7 {
-        let accepted_file = Path::new(&args[6]);
-        match File::open(&accepted_file) {
-            Err(why) => { panic!("couldn't open {}: {}", &accepted_file.display(), why); },
-            Ok(file) => {
-                for line in BufReader::new(file).lines() {
-                    let sc = line.unwrap();
-                    let ti = sc.parse::<usize>().unwrap();
-                    accepted.push(ti);
-                }
-            }
-        }
-    }
-
-    if args.len() == 8 {
-        max_points = args[7].parse::<usize>().unwrap();
-    }
-
-    match parse_matlab(&args[1]) {
+   
+    match parse_csv(&args[1]) {
         Ok(mut models) => {
             let (w, h) = find_extents(&models);
             let (mean, median, sd, min, max) = find_stats(&models);
@@ -422,7 +401,7 @@ fn main() {
             if h > w { scale = 2.0 / h; }
             println!("Max Width / Height: {}, {}", w, h);
             println!("Scale / Scalar: {}, {}", scale, scale * (WIDTH as f32) * SHRINK); 
-            render(&accepted_models, &args[2], nthreads, npertubations, sigma, scale, max_points);
+            render(&accepted_models, &args[2], nthreads, sigma, scale, max_points);
         }, 
         Err(e) => {
             println!("Error parsing MATLAB File: {}", e);
