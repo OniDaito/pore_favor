@@ -22,3 +22,4 @@ I think it's a good idea to make sure your rust compilier is up-to-date. I've fa
 
 ## Running
 
+     cargo run --release --bin ilastik -- /media/proto_backup/npore/pores.tif /media/proto_backup/npore/pores_Object\ Identities_.tif 
