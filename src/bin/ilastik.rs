@@ -60,8 +60,8 @@ fn save_final_fits(img : &Vec<Vec<f32>>, height : usize, width : usize, filename
 /// 
 ///
 
-fn find_extents(mask : &Vec<u16>, height : usize, width : usize, start : usize, end : usize) -> Vec<(usize, usize)> {
-    let mut extents :  Vec<(usize, usize)> = vec!();
+fn find_extents(mask : &Vec<u16>, height : usize, width : usize, start : usize, end : usize) -> Vec<(usize, usize, usize, usize, usize)> {
+    let mut extents :  Vec<(usize, usize, usize, usize, usize)> = vec!();
 
     for _i in start..end {
         // Now create the image we shall save as a fits
@@ -87,11 +87,59 @@ fn find_extents(mask : &Vec<u16>, height : usize, width : usize, start : usize, 
         
         let w = max_x - min_x;
         let h = max_y - min_y;
-        extents.push((w, h));
+        extents.push((w, h, min_x, min_y, _i));
     }
 
     extents
 }
+
+
+/// Returns None
+/// 
+/// # Arguments
+/// 
+///
+
+fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, extents : &Vec<(usize, usize, usize, usize, usize)>, start : usize, end : usize)  -> usize {
+ 
+    for _i in start..end {
+        let idx = _i;
+        // Now create the image we shall save as a fits
+        let w = extents[idx].0;
+        let h = extents[idx].1;
+        let xstart = extents[idx].2;
+        let ystart = extents[idx].3;
+        let ridx = extents[idx].4;
+        let mut new_image : Vec<Vec<f32>> = vec!();
+        
+        // Allocate 0s
+        for _y in 0..image_size {
+            let mut row : Vec<f32> = vec!();
+
+            for _x in 0..image_size {
+                row.push(0.0);
+            }
+
+            new_image.push(row);
+        }
+
+        for y in 0..h {
+
+            for x in 0..w {
+                let raw_pos = (y + ystart) * raw_width + x + xstart;
+
+                if raw_pos < raw_image.len() {
+                    new_image[y][x] = raw_image[raw_pos];
+                }
+            }
+        }
+        let fidx = format!("image_{:06}.fits", ridx as usize);
+        println!("New Image {}, {}, {}, {}, {}", ridx, xstart, ystart, w, h);
+        save_final_fits(&new_image, image_size, image_size, &fidx);
+    }
+    end - start
+}
+
 
 /// Returns None
 /// 
@@ -113,16 +161,14 @@ fn process_mask(mask : &Vec<u16>, raw: &Vec<f32>, height : usize, width : usize,
     let mut pool = Pool::new(nthreads);
     let truns = (total_objs / nthreads) as u32;
     let spare = (total_objs % nthreads) as u32;
-    let mut extents : Vec<(usize, usize)> = vec!();
+    let mut extents : Vec<(usize, usize, usize, usize, usize)> = vec!();
     let (tx, rx) = channel();
 
     // Break the range into groups for each thread
     pool.scoped(|scoped| {
 
         for _t in 0..nthreads {
-
             let tx = tx.clone();
-
             let mut start : usize = (_t * truns) as usize;
             if start == 0 { start = 1; }
             let mut end = ((_t + 1)  * truns) as usize;
@@ -149,12 +195,45 @@ fn process_mask(mask : &Vec<u16>, raw: &Vec<f32>, height : usize, width : usize,
     let mut max_h : usize = 0;
     let mut max_w : usize = 0;
 
-    for e in extents {
+    for e in &extents {
         if e.0 > max_w { max_w = e.0; }
         if e.1 > max_h { max_h = e.1; }
     }
 
     println!("Max extent (w, h) {}, {}", max_w, max_h);
+
+    let mut max_dim = max_w;
+    if max_h > max_w {
+        max_dim = max_h;
+    }
+
+    let (tx2, rx2) = channel();
+    // Now cut up the image into smaller images taking the max extent
+    pool.scoped(|scoped| {
+
+        for _t in 0..nthreads {
+            let tx2 = tx2.clone();
+            let extents = extents.clone();
+            let mut start : usize = (_t * truns) as usize;
+            let mut end = ((_t + 1) * truns) as usize;
+            if _t == nthreads - 1 { end = end + (spare as usize) - 1; }
+           
+            scoped.execute( move || { 
+                let done = cut_image(raw, max_dim, width, &extents, start, end);
+                tx2.send(done).unwrap();
+            });
+        }
+    });
+
+    while progress < nthreads as i32 {
+        match rx2.try_recv() {
+            Ok(_a) => {
+                progress = progress + 1;
+                println!("Progress");
+            }, Err(_e) => {}
+        }
+    }
+
 
 }
 

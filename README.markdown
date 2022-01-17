@@ -6,10 +6,6 @@ A couple of programs for dealing with the nuclear pore data.
 
 * Linux (may work on other systems - so far untested)
 
-Use git to checkout this project *at the same level* as  this one. E.g
-
-    /home/me/projects/pore_favor
-
 ## Building
 
 If you have rust installed, enter the swiss_parse directory and type
@@ -22,4 +18,8 @@ I think it's a good idea to make sure your rust compilier is up-to-date. I've fa
 
 ## Running
 
-     cargo run --release --bin ilastik -- /media/proto_backup/npore/pores.tif /media/proto_backup/npore/pores_Object\ Identities_.tif 
+Rendering
+    cargo run --release -bin render -- <path to csv file> <path to output> <threads> <sigma>
+
+Cutting out the ilastik files
+    cargo run --release --bin ilastik -- /media/proto_backup/npore/pores.tif /media/proto_backup/npore/pores_Object\ Identities_.tif 1
