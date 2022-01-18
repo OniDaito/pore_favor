@@ -21,6 +21,7 @@ use tiff::ColorType;
 use scoped_threadpool::Pool;
 use std::sync::mpsc::channel;
 use std::process;
+use std::f32::consts::PI;
 
 pub enum Direction {
     Right,
@@ -77,6 +78,50 @@ pub fn aug_img(img : &Vec<Vec<f32>>, dir : Direction) -> Vec<Vec<f32>> {
     }
 
     new_img
+}
+
+
+ // Perform a gauss blur
+ pub fn gauss_blur(img : &Vec<Vec<f32>>, gauss : f32 ) -> Vec<Vec<f32>> {
+    // http://blog.ivank.net/fastest-gaussian-blur.html
+    let rs = (gauss * 2.57).ceil() as usize;
+    let height = img.len();
+    let width = img[0].len();
+    
+    // New temp image
+    let mut img_blurred : Vec<Vec<f32>> = vec![];
+
+    for y in 0..height {
+        let mut row : Vec<f32> = vec!();
+        for x in 0..width {
+            row.push(0f32);
+        }
+        img_blurred.push(row);
+    }
+
+    for h in 0..height {
+        for w in 0..width {
+            let mut val : f32 = 0.0;
+            let mut wsum : f32 = 0.0;
+
+            for i in 0..(rs*2+1) {
+                let iy : f32 = (h as f32 ) - (rs as f32) + (i as f32);
+
+                for j in 0..(rs*2+1) {
+                    let ix : f32 = (w as f32 ) - (rs as f32) + (j as f32);
+
+                    let x = ((width - 1) as f32).min(0f32.max(ix)) as usize;
+                    let y = ((height -1) as f32).min(0f32.max(iy)) as usize;
+                    let dsq = (ix - w as f32) * (ix - w as f32) + (iy - h as f32) * (iy - h as f32);
+                    let wght = (-dsq / (2.0*gauss*gauss)).exp() / (PI * 2.0 * gauss * gauss);
+                    val += img[y][x] * wght;
+                    wsum += wght;
+                }
+            }
+            img_blurred[h][w] = val / wsum;
+        }
+    }
+    img_blurred
 }
 
 /// Returns None
@@ -156,7 +201,7 @@ fn find_extents(mask : &Vec<u16>, height : usize, width : usize, start : usize, 
 /// 
 ///
 
-fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, extents : &Vec<(usize, usize, usize, usize, usize)>, start : usize, end : usize)  -> usize {
+fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, extents : &Vec<(usize, usize, usize, usize, usize)>, start : usize, end : usize, gauss: f32)  -> usize {
     let mut count = start * 4;
 
     for _i in start..end {
@@ -190,6 +235,12 @@ fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, exten
                 }
             }
         }
+        
+        // Gaussian blur on top
+        if gauss != 0.0 {
+            new_image = gauss_blur(&new_image, gauss);
+        }
+
         let mut fidx = format!("image_{:06}.fits", count as usize);
         println!("New Image {}, {}, {}, {}, {}", ridx, xstart, ystart, w, h);
         save_final_fits(&new_image, image_size, image_size, &fidx);
@@ -221,7 +272,7 @@ fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, exten
 /// # Arguments
 /// 
 
-fn process_mask(mask : &Vec<u16>, raw: &Vec<f32>, height : usize, width : usize, nthreads : u32) {
+fn process_mask(mask : &Vec<u16>, raw: &Vec<f32>, height : usize, width : usize, nthreads : u32, gauss: f32) {
     let mut total_objs : u32 = 0;
     
     for val in mask {
@@ -294,7 +345,7 @@ fn process_mask(mask : &Vec<u16>, raw: &Vec<f32>, height : usize, width : usize,
             if _t == nthreads - 1 { end = end + (spare as usize) - 1; }
            
             scoped.execute( move || { 
-                let done = cut_image(raw, max_dim, width, &extents, start, end);
+                let done = cut_image(raw, max_dim, width, &extents, start, end, gauss);
                 tx2.send(done).unwrap();
             });
         }
@@ -316,13 +367,19 @@ fn main() {
     let args: Vec<_> = env::args().collect();
     
     if args.len() < 4 {
-        println!("Usage: ilastic <path to raw tiff> <path to class tiff> <num threads>"); 
+        println!("Usage: ilastic <path to raw tiff> <path to class tiff> <num threads> <optional: gauss blur>"); 
         process::exit(1);
     }
 
     let raw_tiff_path = Path::new(&args[1]);
     let obj_tiff_path = Path::new(&args[2]);
     let nthreads = &args[3].parse::<u32>().unwrap();
+    let mut gauss:f32 = 0.0;
+
+    if args.len() == 5 {
+        gauss = args[4].parse::<f32>().unwrap();
+    }
+
     let img_file_raw = File::open(raw_tiff_path).expect("Cannot find test image!");
     let mut decoder_raw = Decoder::new(img_file_raw).expect("Cannot create decoder");
 
@@ -338,7 +395,7 @@ fn main() {
 
         if let DecodingResult::U16(img_res_obj) = decoder_obj.read_image().unwrap() {
             println!("Obj Image Loaded.");
-            process_mask(&img_res_obj, &img_res_raw, 1280, 1280, *nthreads);
+            process_mask(&img_res_obj, &img_res_raw, 1280, 1280, *nthreads, gauss);
         }
 
     } else {
