@@ -22,6 +22,62 @@ use scoped_threadpool::Pool;
 use std::sync::mpsc::channel;
 use std::process;
 
+pub enum Direction {
+    Right,
+    Down,
+    Left
+ }
+
+pub fn aug_img(img : &Vec<Vec<f32>>, dir : Direction) -> Vec<Vec<f32>> {
+    let mut new_img : Vec<Vec<f32>> = vec!();
+    let height = img.len() as i32;
+    let width = img[0].len() as i32;
+    let mut rm : [[i32; 2]; 2] = [[0, -1],[1, 0]];
+
+    for y in 0..img.len() {
+        let mut row : Vec<f32> = vec!();
+        for x in 0..img[0].len() {
+            row.push(0.0);
+        }
+        new_img.push(row);
+    }
+    match dir { // *self has type Direction
+        Direction::Right => {
+            rm = [[0, -1],[1, 0]];
+        },
+        Direction::Down =>{
+            rm = [[-1, 0],[0, -1]];
+        },
+        Direction::Left => {
+            rm = [[0, 1],[-1, 0]];
+        },
+    }
+
+    for y in 0..img.len() {
+        for x in 0..img[0].len() {
+
+            match dir { // *self has type Direction
+                Direction::Right => {
+                    let nx = (width - 1) + (x as i32 * rm[0][0] + y as i32 * rm[0][1]);
+                    let ny = x as i32 * rm[1][0] + y as i32 * rm[1][1];
+                    new_img[y][x] = img[ny as usize][nx as usize];
+                },
+                Direction::Down =>{
+                    let nx = (width - 1) + (x as i32 * rm[0][0] + y as i32 * rm[0][1]);
+                    let ny = (height - 1) + (x as i32 * rm[1][0] + y as i32 * rm[1][1]);
+                    new_img[y][x] = img[ny as usize][nx as usize];
+                },
+                Direction::Left => {
+                    let nx = x as i32 * rm[0][0] + y as i32 * rm[0][1];
+                    let ny = (height - 1) + (x as i32 * rm[1][0] + y as i32 * rm[1][1]);
+                    new_img[y][x] = img[ny as usize][nx as usize];
+                },
+            }
+        }
+    }
+
+    new_img
+}
 
 /// Returns None
 /// Save a fits image
@@ -101,7 +157,8 @@ fn find_extents(mask : &Vec<u16>, height : usize, width : usize, start : usize, 
 ///
 
 fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, extents : &Vec<(usize, usize, usize, usize, usize)>, start : usize, end : usize)  -> usize {
- 
+    let mut count = start * 4;
+
     for _i in start..end {
         let idx = _i;
         // Now create the image we shall save as a fits
@@ -133,9 +190,27 @@ fn cut_image(raw_image : &Vec<f32>, image_size : usize, raw_width : usize, exten
                 }
             }
         }
-        let fidx = format!("image_{:06}.fits", ridx as usize);
+        let mut fidx = format!("image_{:06}.fits", count as usize);
         println!("New Image {}, {}, {}, {}, {}", ridx, xstart, ystart, w, h);
         save_final_fits(&new_image, image_size, image_size, &fidx);
+        count = count + 1;
+
+        // now Aug 3 times
+        let left = aug_img(&new_image, Direction::Left);
+        fidx = format!("image_{:06}.fits", count as usize);
+        count = count + 1;
+        save_final_fits(&left, image_size, image_size, &fidx);
+
+        let right = aug_img(&new_image, Direction::Right);
+        fidx = format!("image_{:06}.fits", count as usize);
+        count = count + 1;
+        save_final_fits(&right, image_size, image_size, &fidx);
+
+        let down = aug_img(&new_image, Direction::Down);
+        fidx = format!("image_{:06}.fits", count as usize);
+        count = count + 1;
+        save_final_fits(&down, image_size, image_size, &fidx);
+
     }
     end - start
 }
